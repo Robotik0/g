@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>Granny 3</title>
+  <link rel="shortcut icon" href="https://cdn.jsdelivr.net/gh/ranny31ranny/5471@main/TemplateData/favicon.ico">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/ranny31ranny/5471@main/TemplateData/style.css">
+
+  <!-- Try to make browser-language detection return English before either SDK loads. -->
+  <script>
+    (function () {
+      try {
+        Object.defineProperty(Navigator.prototype, "language", {
+          configurable: true,
+          get: function () { return "en-US"; }
+        });
+      } catch (e) {
+        try {
+          Object.defineProperty(navigator, "language", {
+            configurable: true,
+            get: function () { return "en-US"; }
+          });
+        } catch (_) {}
+      }
+
+      try {
+        Object.defineProperty(Navigator.prototype, "languages", {
+          configurable: true,
+          get: function () { return ["en-US", "en"]; }
+        });
+      } catch (e) {
+        try {
+          Object.defineProperty(navigator, "languages", {
+            configurable: true,
+            get: function () { return ["en-US", "en"]; }
+          });
+        } catch (_) {}
+      }
+    })();
+  </script>
+
+  <!-- The source build uses the Yandex Games SDK. -->
+  <script src="https://cdn.jsdelivr.net/gh/ranny31ranny/5471@main/v2.79e5f6f6325b0faa1b66.js"></script>
+  <style>
+    html, body, #unity-container, #unity-canvas {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    #unity-container { position: absolute; inset: 0; }
+    #unity-canvas { display: block; position: absolute; inset: 0; }
+    #unity-loading-bar {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(80vw, 500px);
+      color: white;
+      text-align: center;
+    }
+    #unity-progress-bar-empty {
+      width: 100%;
+      height: 10px;
+      background: #555;
+      margin-top: 12px;
+    }
+    #unity-progress-bar-full {
+      width: 0%;
+      height: 100%;
+      background: #fff;
+    }
+    #unity-warning { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 10; }
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="unity-loading-bar">
+      <div>Loading Granny 3…</div>
+      <div id="unity-progress-bar-empty"><div id="unity-progress-bar-full"></div></div>
+    </div>
+    <div id="unity-warning"></div>
+  </div>
+
+  <script>
+    var container = document.getElementById("unity-container");
+    var canvas = document.getElementById("unity-canvas");
+    var loadingBar = document.getElementById("unity-loading-bar");
+    var progressBarFull = document.getElementById("unity-progress-bar-full");
+    var warningBanner = document.getElementById("unity-warning");
+
+    function unityShowBanner(message, type) {
+      var div = document.createElement("div");
+      div.textContent = message;
+      div.style.cssText = "padding:10px;margin:5px;color:#111;background:" +
+        (type === "error" ? "#f99" : "#ff9") + ";";
+      warningBanner.appendChild(div);
+      if (type !== "error") {
+        setTimeout(function () {
+          if (div.parentNode) div.parentNode.removeChild(div);
+        }, 5000);
+      }
+    }
+
+    // Force the SDK's reported language to English where the SDK object permits it.
+    function forceEnglishInSdk(ysdk) {
+      try {
+        var i18n = ysdk && ysdk.environment && ysdk.environment.i18n;
+        if (i18n) {
+          try {
+            i18n.lang = "en";
+          } catch (_) {}
+          try {
+            Object.defineProperty(i18n, "lang", {
+              configurable: true,
+              enumerable: true,
+              get: function () { return "en"; }
+            });
+          } catch (_) {}
+        }
+      } catch (e) {
+        console.warn("Could not override SDK language:", e);
+      }
+    }
+
+    window.ysdk = null;
+    window.player = null;
+
+    var sdkReady = (window.YaGames && typeof YaGames.init === "function")
+      ? YaGames.init().then(function (ysdk) {
+          forceEnglishInSdk(ysdk);
+          window.ysdk = ysdk;
+          if (typeof ysdk.getPlayer === "function") {
+            return ysdk.getPlayer({ scopes: false }).then(function (player) {
+              window.player = player;
+              return ysdk;
+            }).catch(function () {
+              return ysdk;
+            });
+          }
+          return ysdk;
+        }).catch(function (error) {
+          console.warn("Yandex SDK initialization failed; continuing without it.", error);
+          return null;
+        })
+      : Promise.resolve(null);
+
+    var buildUrl = "https://cdn.jsdelivr.net/gh/ranny31ranny/5471@main/Build";
+    var loaderUrl = buildUrl + "/bb0d9ecdb05db3e84da20bd14a4f84dc.loader.js";
+    var wasmParts = [
+      buildUrl + "/bd8d511ba06d09159c93b032551b04fb.wasm.part0",
+      buildUrl + "/bd8d511ba06d09159c93b032551b04fb.wasm.part1",
+      buildUrl + "/bd8d511ba06d09159c93b032551b04fb.wasm.part2"
+    ];
+    var dataParts = [
+      buildUrl + "/fef8fdd7cfc9e5a5001034b01fa3647b.data.part0",
+      buildUrl + "/fef8fdd7cfc9e5a5001034b01fa3647b.data.part1"
+    ];
+
+    function mergeFiles(urls) {
+      return Promise.all(urls.map(function (url) {
+        return fetch(url).then(function (response) {
+          if (!response.ok) throw new Error("Could not load game asset: " + url);
+          return response.arrayBuffer();
+        });
+      })).then(function (parts) {
+        return URL.createObjectURL(new Blob(parts));
+      });
+    }
+
+    Promise.all([sdkReady, mergeFiles(wasmParts), mergeFiles(dataParts)])
+      .then(function (results) {
+        var wasmUrl = results[1];
+        var dataUrl = results[2];
+        var config = {
+          dataUrl: dataUrl,
+          frameworkUrl: buildUrl + "/e12dac5a3f5e3f677b009118afef20b7.framework.js",
+          codeUrl: wasmUrl,
+          streamingAssetsUrl: "StreamingAssets",
+          companyName: "Games Place",
+          productName: "Granny 3",
+          productVersion: "0.1",
+          showBanner: unityShowBanner
+        };
+
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+          container.className = "unity-mobile";
+          canvas.className = "unity-mobile";
+        }
+
+        var loaderScript = document.createElement("script");
+        loaderScript.src = loaderUrl;
+        loaderScript.onload = function () {
+          if (typeof createUnityInstance !== "function") {
+            unityShowBanner("Unity loader failed to initialize.", "error");
+            return;
+          }
+          createUnityInstance(canvas, config, function (progress) {
+            progressBarFull.style.width = (100 * progress) + "%";
+          }).then(function (unityInstance) {
+            window.myGameInstance = unityInstance;
+            loadingBar.style.display = "none";
+          }).catch(function (error) {
+            console.error("Unity loading error:", error);
+            unityShowBanner("The game could not start. Check the browser console for details.", "error");
+          });
+        };
+        loaderScript.onerror = function () {
+          unityShowBanner("Could not load the Unity loader script.", "error");
+        };
+        document.body.appendChild(loaderScript);
+      })
+      .catch(function (error) {
+        console.error("Could not download Granny 3 files:", error);
+        unityShowBanner("Could not download the game files. Try reloading the page.", "error");
+      });
+  </script>
+</body>
+</html>
